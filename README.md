@@ -91,7 +91,7 @@ Pass these via the `args:` field in the dataflow YAML, or directly on the comman
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--xml PATH` | unset | MJCF scene file to load. Overrides `--scene` when set. |
-| `--scene NAME` | `cell` | Bundled scene to load when `--xml` is not set. Choices: `cell`, `demo`, `pedestal`, `bimanual`. |
+| `--scene NAME` | `robobenchmart` | Scene to load when `--xml` is not set. The default is the compact six-product, wheeled RoboBenchMart scene in the parent project. Other choices: `cell`, `demo`, `pedestal`. |
 | `--keyframe NAME` | `home` | Keyframe in the MJCF to reset to on startup. |
 | `--randomize-objects [RANGE_M]` | off | Randomize freejoint scene objects (e.g. cubes) on startup and on each `button_x` reset: uniform xy offset within ±`RANGE_M` m of the keyframe pose plus a uniform yaw. `z` and articulated fixtures are unchanged. `RANGE_M` defaults to `0.05` when omitted. |
 | `--enable-collision` | off | Enable contact/collision detection. Disabled by default to avoid unexpected joint-locking during teleoperation. |

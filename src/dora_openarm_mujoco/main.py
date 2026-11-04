@@ -73,10 +73,10 @@ camera_wrist_right / camera_wrist_left / camera_head_left / camera_head_right / 
 CLI arguments (set via ``args:`` in the dataflow YAML)
 --------------------------------------------------------
 --xml PATH
-    MJCF scene file.  Defaults to the bundled openarm_cell scene.
+    MJCF scene file.  Defaults to the project's compact wheeled RoboBenchMart scene.
 
 --scene NAME
-    Bundled scene to load when --xml is not set.  Choices: {cell, demo, pedestal}.
+    Scene to load when --xml is not set.  Choices: {cell, demo, pedestal, robobenchmart}.
 
 --keyframe NAME  (default: "home")
     Name of the keyframe in the MJCF to reset to on startup.
@@ -126,6 +126,7 @@ CLI arguments (set via ``args:`` in the dataflow YAML)
 import argparse
 import math
 import os
+from pathlib import Path
 import signal
 import sys
 import threading
@@ -148,12 +149,32 @@ from dora_openarm_mujoco._draw import (
     origin_world_pose,
 )
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+_ROBOBENCHMART_SCENE = _PROJECT_ROOT / (
+    "scenes/robobenchmart/generated/"
+    "layout_data_test_unseen_items_pick_to_basket_1_ae2c1775_0_"
+    "slot0_seed42_openarm_all_visual_collision_original_stocked_convex_"
+    "structured_textured_wheeled.xml"
+)
+
+
+def _robobenchmart_scene_xml() -> str:
+    if not _ROBOBENCHMART_SCENE.is_file():
+        raise FileNotFoundError(
+            "Default RoboBenchMart scene is missing: "
+            f"{_ROBOBENCHMART_SCENE}. Generate/restore the compact wheeled scene "
+            "under scenes/robobenchmart/generated first."
+        )
+    return str(_ROBOBENCHMART_SCENE)
+
+
 _SCENE_RESOLVERS = {
     "cell": openarm_mujoco.openarm_cell_xml,
     "demo": openarm_mujoco.openarm_demo_xml,
     "pedestal": openarm_mujoco.openarm_pedestal_xml,
+    "robobenchmart": _robobenchmart_scene_xml,
 }
-_DEFAULT_SCENE = "cell"
+_DEFAULT_SCENE = "robobenchmart"
 _DEFAULT_VIEWER_FPS = 30.0
 
 _DEFAULT_ORIGIN_FRAME = "arm_origin"
@@ -323,13 +344,19 @@ def _reset_scene_objects(
 class CameraRenderer:
     """Offscreen renderer for MuJoCo cameras. Renders to JPEG bytes."""
 
-    def __init__(self, model: mujoco.MjModel, jpeg_quality: int = 90):
+    def __init__(
+        self,
+        model: mujoco.MjModel,
+        jpeg_quality: int = 90,
+        camera_names: list[str] | None = None,
+    ):
         self.jpeg_quality = jpeg_quality
         self.cam_ids: dict[str, int] = {}
         self.renderers: dict[str, mujoco.Renderer] = {}
 
+        camera_names = _CAMERAS if camera_names is None else camera_names
         cam_resolutions: dict[str, tuple[int, int]] = {}
-        for cam_name in _CAMERAS:
+        for cam_name in camera_names:
             cam_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, cam_name)
             if cam_id < 0:
                 print(f"[camera] Warning: camera '{cam_name}' not found in model")
@@ -659,6 +686,18 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _parse_camera_names(value: str) -> list[str]:
+    names = [name.strip() for name in value.split(",") if name.strip()]
+    if not names:
+        raise argparse.ArgumentTypeError("must include at least one camera")
+    if len(names) != len(set(names)):
+        raise argparse.ArgumentTypeError("camera names must not contain duplicates")
+    unknown = set(names) - set(_CAMERAS)
+    if unknown:
+        raise argparse.ArgumentTypeError(f"unknown camera names: {sorted(unknown)}")
+    return names
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Viewer dora node – MuJoCo renderer with camera output for OpenArm"
@@ -670,7 +709,7 @@ def _parse_args() -> argparse.Namespace:
         "--scene",
         choices=sorted(_SCENE_RESOLVERS),
         default=_DEFAULT_SCENE,
-        help=f"Bundled scene to load when --xml is not set (default: {_DEFAULT_SCENE})",
+        help=f"Scene to load when --xml is not set (default: {_DEFAULT_SCENE})",
     )
     p.add_argument(
         "--keyframe", "-k", default="home", help="Initial keyframe name (default: home)"
@@ -718,6 +757,16 @@ def _parse_args() -> argparse.Namespace:
         "--render",
         action="store_true",
         help="Enable offscreen camera rendering and publish images (default: off)",
+    )
+    p.add_argument(
+        "--cameras",
+        type=_parse_camera_names,
+        default=list(_CAMERAS),
+        metavar="CAMERA[,CAMERA...]",
+        help=(
+            "Comma-separated MuJoCo camera names to render when --render is set "
+            f"(default: {','.join(_CAMERAS)})"
+        ),
     )
     p.add_argument(
         "--debug-frames",
@@ -780,7 +829,7 @@ def main() -> None:
 
     cam_scheduler: CameraScheduler | None = None
     if args.render:
-        renderer = CameraRenderer(model, _JPEG_QUALITY)
+        renderer = CameraRenderer(model, _JPEG_QUALITY, args.cameras)
         print(f"[camera] Available cameras: {list(renderer.cam_ids.keys())}")
         cam_scheduler = CameraScheduler(renderer, node, data)
 
